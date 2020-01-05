@@ -11,6 +11,10 @@
     repo: deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu trusty/mongodb-org/4.0 multiverse
     state: present
 
+- name: manually install required libraries
+  become: yes
+  command: apt-get install libcurl3 openssl -y
+
 - name: Install mongodb
   become: yes
   apt:
