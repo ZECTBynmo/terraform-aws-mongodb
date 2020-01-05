@@ -1,66 +1,48 @@
-data "aws_ami" "ubuntu" {
-  most_recent = true
+---
+- name: Add MongoDB key
+  become: yes
+  apt_key:
+    keyserver: hkp://keyserver.ubuntu.com:80
+    id: 9DA31620334BD75D9DCB49F368818C72E52529D4
 
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-bionic-18.04-amd64-server-*"]
-  }
+- name: Add MongoDB repository
+  become: yes
+  apt_repository:
+    repo: deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu trusty/mongodb-org/4.0 multiverse
+    state: present
 
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
+- name: manually install required libraries
+  become: yes
+  command: apt-get install libcurl3 openssl -y
 
-  filter {
-    name   = "root-device-type"
-    values = ["ebs"]
-  }
+- name: Install mongodb
+  become: yes
+  apt:
+    update_cache: yes
+    name: mongodb-org
+    state: present
 
-  owners = ["099720109477"] # Canonical
-}
+- name: Create systemd service file
+  become: yes
+  template:
+    src: mongod.service
+    dest: /lib/systemd/system/mongod.service
 
-resource "aws_instance" "mongodb" {
-  availability_zone = "${var.availability_zone}"
+- name: Enable Mongod service
+  become: yes
+  command: "{{ item }}"
+  with_items:
+    - systemctl --system daemon-reload
+    - systemctl enable mongod.service
 
-  tags {
-    Name = "mongodb"
-  }
+- name: Copy MongoDB configuration file
+  become: yes
+  template:
+    src: mongod.conf
+    dest: /etc/mongod.conf
 
-  ami           = "${data.aws_ami.ubuntu.id}"
-  instance_type = "${var.instance_type}"
-
-  root_block_device {
-    volume_type = "gp2"
-    volume_size = "${var.volume_size}"
-  }
-
-  key_name = "${var.key_name}"
-  associate_public_ip_address = true
-  security_groups = ["${var.security_groups}"]
-
-  connection {
-    user        = "ubuntu"
-    private_key = "${var.private_key}"
-  }
-
-  provisioner "file" {
-    source      = "${path.module}/provision/wait-for-cloud-init.sh"
-    destination = "/tmp/wait-for-cloud-init.sh"
-  }
-
-  provisioner "remote-exec" {
-    inline = [
-      "chmod +x /tmp/wait-for-cloud-init.sh",
-      "/tmp/wait-for-cloud-init.sh",
-    ]
-  }
-
-  provisioner "ansible" {
-    plays {
-      playbook = "${path.module}/provision/playbook.yaml"
-
-      # https://docs.ansible.com/ansible/2.4/intro_inventory.html#hosts-and-groups
-      groups = ["db-mongodb"]
-    }
-  }
-}
+- name: Restart mongodb
+  become: yes
+  service:
+    name: mongod
+    state: restarted
